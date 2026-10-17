@@ -126,3 +126,11 @@ def test_most_important_enhancements_include_priority_field_issues(monkeypatch):
     assert "Issue 1" in highlights
     assert "Issue 2" in highlights
     assert "Issue 3" not in highlights
+
+
+def test_custom_priority_mapping_extends_default_mapping(monkeypatch):
+    issues = [github_issue(labels=["bug"], fields=[("Priority", "High")])]
+    notes = generate_release_notes(
+        monkeypatch, issues, priority_mapping={"P0": "critical"}
+    )
+    assert "| bug | high | Issue 1 |" in notes

@@ -227,7 +227,7 @@ class Issue:
         self.url = f"https://github.com/{repository}/issues/{issue.number}"
         self.type = self._get_type(issue)
         self.priority = self._get_priority(
-            issue, priority_mapping or PRIORITY_FIELD_MAPPING
+            issue, {**PRIORITY_FIELD_MAPPING, **(priority_mapping or {})}
         )
         self._custom_type_order = type_order
 
