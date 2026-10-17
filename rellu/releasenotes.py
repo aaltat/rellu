@@ -50,7 +50,19 @@ class ReleaseNotesGenerator:
         self.default_targets = default_targets
         self._output = None
         self._type_order = type_order
-        self._priority_mapping = priority_mapping
+        self._priority_mapping = self._validate_priority_mapping(priority_mapping)
+
+    def _validate_priority_mapping(self, mapping):
+        if mapping is None:
+            return None
+        for option, priority in mapping.items():
+            if priority not in Issue.PRIORITIES[:-1]:
+                raise Exit(
+                    f"Priority field option '{option}' mapped to unknown "
+                    f"priority '{priority}'. Valid priorities are: "
+                    f"{', '.join(Issue.PRIORITIES[:-1])}."
+                )
+        return {option.lower(): priority for option, priority in mapping.items()}
 
     def generate(self, version, username=None, password=None, file=sys.stdout):
         if version.dev:
@@ -238,17 +250,17 @@ class Issue:
     def _get_priority(self, issue: GitHubIssue, priority_mapping: "dict[str, str]"):
         # Read from the already fetched data. `raw_data` would refetch the issue.
         field_values = {
-            field["issue_field_name"].lower(): field["value"]
+            field.get("issue_field_name", "").lower(): field.get("value")
             for field in issue._rawData.get("issue_field_values") or []
         }
-        if "priority" in field_values:
-            value = field_values["priority"]
+        value = field_values.get("priority")
+        if value:
             try:
                 return priority_mapping[value.lower()]
             except KeyError:
                 print(
                     f"Warning: Issue {self.id} has unknown Priority field "
-                    f"value '{value}'. Using priority label instead.",
+                    f"value '{value}'.",
                     file=sys.stderr,
                 )
         priorities = ["priority: " + prio for prio in self.PRIORITIES]

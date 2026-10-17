@@ -1,6 +1,9 @@
 import io
 from types import SimpleNamespace
 
+import pytest
+from invoke import Exit
+
 from rellu import releasenotes
 from rellu.releasenotes import Issue, ReleaseNotesGenerator
 from rellu.version import Version
@@ -68,12 +71,26 @@ def test_unknown_priority_option_warns_and_falls_back_to_label(capsys):
 def test_unknown_priority_option_without_label_is_not_set(capsys):
     github = github_issue(fields=[("Priority", "P0")])
     assert Issue(github, "org/repo").priority == "---"
+    assert "label" not in capsys.readouterr().err
 
 
 def test_unknown_priority_option_warns_only_once(capsys):
     issue = Issue(github_issue(fields=[("Priority", "P0")]), "org/repo")
     issue.priority, issue.priority
     assert capsys.readouterr().err.count("Warning") == 1
+
+
+def test_cleared_priority_field_falls_back_to_label():
+    github = github_issue(labels=["priority: low"])
+    github._rawData["issue_field_values"] = [
+        {"issue_field_name": "Priority", "value": None, "single_select_option": None}
+    ]
+    assert Issue(github, "org/repo").priority == "low"
+
+
+def test_priority_mapping_to_unknown_priority_is_rejected():
+    with pytest.raises(Exit):
+        ReleaseNotesGenerator("o/r", "T", "I", priority_mapping={"p0": "urgent"})
 
 
 def generate_release_notes(monkeypatch, issues, **config):
@@ -93,7 +110,7 @@ def generate_release_notes(monkeypatch, issues, **config):
 def test_custom_priority_mapping(monkeypatch):
     issues = [github_issue(labels=["bug"], fields=[("Priority", "P0")])]
     notes = generate_release_notes(
-        monkeypatch, issues, priority_mapping={"p0": "critical"}
+        monkeypatch, issues, priority_mapping={"P0": "critical"}
     )
     assert "| bug | critical | Issue 1 |" in notes
 
