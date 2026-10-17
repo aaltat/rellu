@@ -26,6 +26,12 @@ from invoke import Exit
 from .repo import get_repository
 
 TYPE_ORDER_LIST = list(string.ascii_lowercase)
+PRIORITY_FIELD_MAPPING = {
+    "urgent": "critical",
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+}
 
 
 class ReleaseNotesGenerator:
@@ -36,6 +42,7 @@ class ReleaseNotesGenerator:
         intro,
         default_targets=(),
         type_order: "list[str] | None" = None,
+        priority_mapping: "dict[str, str] | None" = None,
     ):
         self.repository = repository
         self.title = title
@@ -43,6 +50,7 @@ class ReleaseNotesGenerator:
         self.default_targets = default_targets
         self._output = None
         self._type_order = type_order
+        self._priority_mapping = priority_mapping
 
     def generate(self, version, username=None, password=None, file=sys.stdout):
         if version.dev:
@@ -67,7 +75,9 @@ class ReleaseNotesGenerator:
     def _get_issues_in_milestone(self, repository, version):
         milestone = self._get_milestone(repository, version)
         for data in repository.get_issues(milestone=milestone, state="all"):
-            issue = Issue(data, repository.full_name, self._type_order)
+            issue = Issue(
+                data, repository.full_name, self._type_order, self._priority_mapping
+            )
             if issue.included_in_release_notes(version):
                 yield issue
 
@@ -102,13 +112,8 @@ class ReleaseNotesGenerator:
         self._write(intro, newlines=2)
 
     def _write_most_important_enhancements(self, issues, version):
-        self._write_issues_with_label(
-            "Most important enhancements",
-            issues,
-            version,
-            "priority: critical",
-            "priority: high",
-        )
+        issues = [issue for issue in issues if issue.priority in ("critical", "high")]
+        self._write_issues("Most important enhancements", issues, version)
 
     def _write_backwards_incompatible_changes(self, issues, version):
         self._write_issues_with_label(
@@ -164,6 +169,9 @@ class ReleaseNotesGenerator:
         issues = [
             issue for issue in issues if any(label in issue.labels for label in labels)
         ]
+        self._write_issues(header, issues, version)
+
+    def _write_issues(self, header, issues, version):
         if not issues:
             return
         self._write_header(header)
@@ -197,6 +205,7 @@ class Issue:
         issue: GitHubIssue,
         repository: str,
         type_order: "list[str] | None" = None,
+        priority_mapping: "dict[str, str] | None" = None,
     ):
         self.id = f"#{issue.number}"
         self.milestone = issue.milestone.title
@@ -205,6 +214,9 @@ class Issue:
         self.labels = [label.name for label in issue.get_labels()]
         self.url = f"https://github.com/{repository}/issues/{issue.number}"
         self.type = self._get_type(issue)
+        self.priority = self._get_priority(
+            issue, priority_mapping or PRIORITY_FIELD_MAPPING
+        )
         self._custom_type_order = type_order
 
     def _get_type(self, issue: GitHubIssue):
@@ -223,8 +235,22 @@ class Issue:
                 return label
         return None
 
-    @property
-    def priority(self):
+    def _get_priority(self, issue: GitHubIssue, priority_mapping: "dict[str, str]"):
+        # Read from the already fetched data. `raw_data` would refetch the issue.
+        field_values = {
+            field["issue_field_name"].lower(): field["value"]
+            for field in issue._rawData.get("issue_field_values") or []
+        }
+        if "priority" in field_values:
+            value = field_values["priority"]
+            try:
+                return priority_mapping[value.lower()]
+            except KeyError:
+                print(
+                    f"Warning: Issue {self.id} has unknown Priority field "
+                    f"value '{value}'. Using priority label instead.",
+                    file=sys.stderr,
+                )
         priorities = ["priority: " + prio for prio in self.PRIORITIES]
         for label in self.labels:
             if label in priorities:
